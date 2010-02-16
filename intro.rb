@@ -42,8 +42,9 @@ class Intro < javax.swing.JPanel
       # @cupanim = DemoImages.instance.fetch("cupanim.gif")
       # @java_logo = DemoImages.instance.fetch("java_logo.png")
 
-      @scenes = Director.create_scenes
-      @index = 0
+      @director = Director.create
+      @scene = nil
+
       @thread = nil
       @sleep_amt = 0.03     # 30msec ごとに描画メソッドを実行
 
@@ -67,8 +68,8 @@ class Intro < javax.swing.JPanel
       g2.setRenderingHint(java.awt.RenderingHints::KEY_ANTIALIASING,
                           java.awt.RenderingHints::VALUE_ANTIALIAS_ON);
       g2.setBackground(getBackground())
-      @scenes[@index].step(d.width, d.height)
-      @scenes[@index].render(d.width, d.height, g2)
+      @scene.step(d.width, d.height)
+      @scene.render(d.width, d.height, g2)
       g2.dispose()
 
       g.drawImage(@bimg, 0, 0, self)
@@ -79,76 +80,172 @@ class Intro < javax.swing.JPanel
       # window非表示の時、スレッドを止める
 
       while(@thread)
+        @scene = @director.fetch
         d = getSize()
-        @scenes[@index].reset(d.width, d.height)
-        until @scenes[@index].animate_end?
+        @scene.reset(d.width, d.height)
+        until @scene.animate_end?
           repaint
           sleep(@sleep_amt)
         end
-        @index += 1
-        @index =0 if @index >= @scenes.size
       end
     end
   end
 
   class Director
     def initialize
-      @gp = java.awt.GradientPaint.new(0, 40 , MY_BLUE, 38, 2, MY_BLACK)
-      @f1 = java.awt.Font.new("serif", java.awt.Font::PLAIN, 200)
-      @f2 = java.awt.Font.new("serif", java.awt.Font::PLAIN, 120)
-      @f3 = java.awt.Font.new("serif", java.awt.Font::PLAIN, 72)
+      @scenes = []
+      @index = 0
     end
 
-    def self.create_scenes
-      scenes = []
-=begin
-      txe = TxE.new("J",
-                     java.awt.Font.new("serif", java.awt.Font::PLAIN, 150),
-                     MY_YELLOW,
-                     30,
-                     TxE::Scale)
-      gpe = GpE.new(MY_BLACK, MY_BLUE, 30, GpE::Mixed)
-      scenes << Scene.new([ClearBackground.new, gpe, txe])
+    class Builder
+      def initialize()
+        @parts = []
+      end
 
-      txe = TxE.new("2",
-                     java.awt.Font.new("serif", java.awt.Font::PLAIN, 150),
-                     MY_YELLOW,
-                     30,
-                     TxE::Rotate)
-      gpe = GpE.new(MY_BLUE, MY_BLACK, 30, GpE::Mixed)
-      scenes << Scene.new([gpe, txe])
+      def txe(h)
+        init_param(h)
+        h[:font] ||= java.awt.Font.new("serif", java.awt.Font::PLAIN, 200)
+        h[:extentions] ||= []
+        @parts << TxE.new(h[:text], h[:font], h[:paint], h[:count], h[:start_delay], h[:extentions])
+      end
 
-      txe = TxE.new("D",
-                     java.awt.Font.new("serif", java.awt.Font::PLAIN, 150),
-                     MY_YELLOW,
-                     30,
-                     TxE::Scale)
-      gpe = GpE.new(MY_BLACK, MY_BLUE, 30, GpE::Mixed)
-      scenes << Scene.new([gpe, txe])
+      def gpe(h)
+        init_param(h)
+        @parts << GpE.new(h[:color1], h[:color2], h[:count], h[:start_delay], h[:type])
+      end
 
-      txe = TxE.new("JRuby2D",
-                     java.awt.Font.new("serif", java.awt.Font::PLAIN, 100),
-                     MY_YELLOW,
-                     30,
-                     TxE::Rotate)
-      gpe = GpE.new(MY_BLUE, MY_BLACK, 25, GpE::Horizontally)
-      scenes << Scene.new([gpe, txe])
+      def padding(h)
+        init_param(h)
+        @parts << Padding.new(h[:count], h[:start_delay])
+      end
 
-      scenes << Scene.new([DdE.new(50, 2)])
-      scenes << Scene.new([ClearBackground.new, TwoRectangle.new(40), Features.new(["Graphics", "Antialiased rendering", "Bezier paths","Transforms", "Compositing", "Stroking parameters"])])
-      scenes << Scene.new([ClearBackground.new])
-=end
+      def fill_rect(h = {})
+        @parts << FillRect.new(h[:paint])
+      end
 
+      def dde(h)
+        init_param(h)
+        h[:erase_count] ||= 1500
+        @parts << DdE.new(h[:block_size], h[:count], h[:start_delay], h[:erase_count])
+      end
 
-            txe = TxE.new("JRuby2D",
-                     java.awt.Font.new("serif", java.awt.Font::PLAIN, 100),
-                     nil,
-                     50,0,
-                     TxE::Nothing, TxE::Alpha)
-      scenes << Scene.new([TpE.new(MY_BLACK, MY_BLUE, 40, 40, 0, TpE::SicleRect),
-                           FillRect.new(), TpE.new(MY_BLACK, MY_YELLOW, 4, 25), txe])
-      scenes << Scene.new([CoE.new(30, 0, CoE::Circle)])
-      scenes
+      def two_rectangle(h)
+        init_param(h)
+        @parts << TwoRectangle.new(h[:count], h[:start_delay])
+      end
+
+      def tpe(h)
+        init_param(h)
+        @parts << TpE.new(h[:paint1], h[:paint2], h[:size], h[:count], h[:start_delay], h[:type])
+      end
+
+      def lne(h)
+        init_param(h)
+        @parts << LnE.new(h[:count], h[:start_delay])
+      end
+
+      def coe(h)
+        init_param(h)
+        @parts << CoE.new(h[:count], h[:start_delay], h[:type])
+      end
+
+      def features(h)
+        h[:font1] ||= java.awt.Font.new("serif", java.awt.Font::BOLD, 38)
+        h[:font2] ||= java.awt.Font.new("serif", java.awt.Font::BOLD, 24)
+        @parts << Features.new(h[:text], h[:font1], h[:font2])
+      end
+
+      def init_param(h)
+        h[:start_delay] ||= 0
+      end
+
+      def scene
+        Scene.new(@parts)
+      end
+    end
+
+    def add_scene(&block)
+      b = Builder.new
+      b.instance_eval(&block)
+      @scenes << b.scene
+    end
+
+    def fetch
+      ret = @scenes[@index]
+      @index +=1
+      @index = 0 if @index >= @scenes.size
+      ret
+    end
+
+    def self.create
+      d = new
+      d.add_scene do
+        gpe(:color1 => MY_BLACK, :color2 => MY_BLUE, :count => 30, :type => GpE::Mixed)
+        txe(:text => "J", :paint => MY_YELLOW, :count=> 30, :extentions => [TxE::Scale])
+      end
+
+      d.add_scene do
+        gpe(:color1 => MY_BLACK, :color2 => MY_BLUE, :count => 30, :type => GpE::Mixed)
+        txe(:text => "2", :paint => MY_YELLOW, :count=> 30, :extentions => [TxE::Scale, TxE::Rotate])
+      end
+
+      d.add_scene do
+        gpe(:color1 => MY_BLACK, :color2 => MY_BLUE, :count => 30, :type => GpE::Mixed)
+        txe(:text => "D", :paint => MY_YELLOW, :count=> 30, :extentions => [TxE::Scale])
+      end
+
+      d.add_scene do
+        gpe(:color1 => MY_BLUE, :color2 => MY_BLACK , :count => 30, :type => GpE::Horizontally)
+        txe(:text => "JRuby2D", :font => java.awt.Font.new("serif", java.awt.Font::PLAIN, 120),
+             :paint => MY_YELLOW, :count=> 30, :extentions => [TxE::Scale, TxE::Rotate])
+      end
+
+      d.add_scene do
+        dde(:block_size => 2, :count => 40, :start_delay => 10)
+      end
+
+      d.add_scene do
+        fill_rect(:paint => MY_BLACK)
+        two_rectangle(:count => 40)
+        features(:text => ["Graphics", "Antialiased rendering", "Bezier paths",
+                            "Transforms", "Compositing", "Stroking parameters"])
+      end
+
+      d.add_scene do
+        padding(:count => 10)
+      end
+
+      d.add_scene do
+        gpe(:color1 => MY_BLUE, :color2 => MY_BLACK, :count => 30, :type => GpE::Vertically2)
+        tpe(:paint1 => MY_BLACK, :paint2 => MY_YELLOW, :size => 3, :count => 40, :type => TpE::Circle)
+        txe(:text => "JRuby2D", :font => java.awt.Font.new("serif", java.awt.Font::PLAIN, 120),
+             :paint => nil, :count=> 40, :extentions => [TxE::Alpha])
+      end
+
+      d.add_scene do
+        coe(:count => 30, :type => CoE::Circle)
+      end
+
+      d.add_scene do
+        fill_rect(:paint => MY_BLACK)
+        two_rectangle(:count => 40)
+        features(:text => ["Text", "Extended font support", "Advanced text layout",  "Dynamic font loading",
+                            "AttributeSets for font customization" ],
+                  :font2 => java.awt.Font.new("serif", java.awt.Font::BOLD, 22))
+      end
+
+      d.add_scene do
+        padding(:count => 10)
+      end
+
+      d.add_scene do
+        tpe(:paint1 => MY_BLACK, :paint2 => MY_BLUE, :size => 40, :count => 50, :type => TpE::SicleRect)
+        fill_rect()
+        txe(:text => "JRuby2D", :font => java.awt.Font.new("serif", java.awt.Font::PLAIN, 120),
+             :paint => MY_YELLOW, :count=> 50)
+      end
+
+      d
     end
   end
 
@@ -240,7 +337,32 @@ class Intro < javax.swing.JPanel
   end
 
   class TxE < AnimateTemplate
-    def initialize(text, font, paint, count, start_delay=0, type=Rotate, alpha=NotAlpha)
+    #  === 引数
+    # +text+::
+    # 描画するString
+    #
+    # +font+::
+    # 描画に使うjava.awt.Fontオブジェクト
+    #
+    # +paint+::
+    # 描画に使うPaint
+    #
+    # +count+::
+    # see AnimateTemplate
+    #
+    # +start_delay+::
+    # see AnimateTemplate
+    #
+    # +extentions+::
+    # TxEの描画を拡張するmoduleの配列
+    #
+    #   TxE::Rotate
+    #     文字を回転させる
+    #   TxE::Scale
+    #     文字の大きさを拡大させる
+    #   TxE::Alpha
+    #     alphaを0～1と変化させる
+    def initialize(text, font, paint, count, start_delay=0, extentions=[])
       super(count, start_delay)
       @paint = paint
 
@@ -255,8 +377,7 @@ class Intro < javax.swing.JPanel
         @shapes.push(java.awt.font.TextLayout.new(c, font, frc).getOutline(nil))
       end
 
-      extend type
-      extend alpha
+      extentions.each{|m| extend m}
     end
 
     def __step(w, h)
@@ -276,65 +397,62 @@ class Intro < javax.swing.JPanel
       g.setComposite(save_ac)
     end
 
+    def affine_transform(w, h, shape, char_width)
+      bounds = shape.getBounds()
+      at = java.awt.geom.AffineTransform.new
+      at.translate(char_width, h/2 + bounds.getHeight()/2)
+      s = at.createTransformedShape(shape)
+      b1 = s.getBounds()
+
+      at.rotate(rotate_angle())
+      at.scale(scale_x(), scale_y())
+      s = at.createTransformedShape(shape)
+      b2 = s.getBounds2D()
+
+      xx =   (b1.getX()+b1.getWidth()/2) - (b2.getX()+b2.getWidth()/2)
+      yy =   (b1.getY()+b1.getHeight()/2) - (b2.getY()+b2.getHeight()/2)
+      to_center_at = java.awt.geom.AffineTransform.new
+      to_center_at.translate(xx, yy)
+      to_center_at.concatenate(at)
+      to_center_at
+    end
+
+    def rotate_angle
+      0
+    end
+
+    def scale_x
+      1.0
+    end
+
+    def scale_y
+      1.0
+    end
+
     module Rotate
-
-      def affine_transform(w, h, shape, char_width)
-        bounds = shape.getBounds()
-        at = java.awt.geom.AffineTransform.new
-        at.translate(char_width, h/2 + bounds.getHeight()/2)
-        s = at.createTransformedShape(shape)
-        b1 = s.getBounds()
-
-        at.rotate(rotate_angle)
-        at.scale(scale_value, scale_value)
-        s = at.createTransformedShape(shape)
-        b2 = s.getBounds2D()
-
-        xx =   (b1.getX()+b1.getWidth()/2) - (b2.getX()+b2.getWidth()/2)
-        yy =   (b1.getY()+b1.getHeight()/2) - (b2.getY()+b2.getHeight()/2)
-        to_center_at = java.awt.geom.AffineTransform.new
-        to_center_at.translate(xx, yy)
-        to_center_at.concatenate(at)
-        to_center_at
-      end
-
       def rotate_angle
         rotate = fraction * 360.0 * 2  # rotate 2 times
         java.lang.Math.toRadians(rotate)
       end
-
-      def scale_value
-        fraction * 1.0
-      end
     end
 
     module Scale
-      include Rotate
-      def rotate_angle
-        0
+      def scale_x
+        1.0 * fraction ** 2
+      end
+
+      def scale_y
+        1.0 * fraction ** 2
       end
     end
 
-    module Nothing
-      include Rotate
-      def rotate_angle
-        0
-      end
-
-      def scale_value
-        1.0
-      end
+    def alpha_composite
+      java.awt.AlphaComposite.getInstance(java.awt.AlphaComposite::SRC_OVER, 1.0)
     end
 
     module Alpha
       def alpha_composite
         java.awt.AlphaComposite.getInstance(java.awt.AlphaComposite::SRC_OVER, fraction**2)
-      end
-    end
-
-    module NotAlpha
-      def alpha_composite
-        java.awt.AlphaComposite.getInstance(java.awt.AlphaComposite::SRC_OVER, 1.0)
       end
     end
   end
@@ -365,10 +483,10 @@ class Intro < javax.swing.JPanel
         w2 = w * 0.5
         x1 = w * (1.0 - fraction)
         x2 = w * fraction
-        @rect << java.awt.geom.Rectangle2D::Float.new( 0, 0, w2, h)
+        @rect << java.awt.geom.Rectangle2D::Float.new( 0, 0,   w2, h)
         @rect << java.awt.geom.Rectangle2D::Float.new(w2, 0, w-w2, h)
-        @grad << java.awt.GradientPaint.new(0, 0, @color1, x1, 0, @color2)
-        @grad << java.awt.GradientPaint.new(x2, 0, @color2, w, 0, @color1)
+        @grad << java.awt.GradientPaint.new(0, 0, @color1, x1+1, 0, @color2)
+        @grad << java.awt.GradientPaint.new(x2, 0, @color2, w+1, 0, @color1)
       end
     end
 
@@ -392,8 +510,8 @@ class Intro < javax.swing.JPanel
         h2 = h * 0.5
         y1 = h * (1.0 - fraction)
         y2 = h * fraction
-        @rect << java.awt.geom.Rectangle2D::Float.new( 0, 0, w, h2)
-        @rect << java.awt.geom.Rectangle2D::Float.new( 0, h2, w, h-h2)
+        @rect << java.awt.geom.Rectangle2D::Double.new( 0, 0, w, h2+1)
+        @rect << java.awt.geom.Rectangle2D::Double.new( 0, h2, w, h-h2-1)
         @grad << java.awt.GradientPaint.new(0, 0, @color1, 0, y1+30, @color2)
         @grad << java.awt.GradientPaint.new(0, y2-30, @color2, 0, h, @color1)
       end
@@ -510,22 +628,20 @@ class Intro < javax.swing.JPanel
 
     def __reset(w, h)
       create_rectangle(w, h)
-      @x_incr = w.to_f / (@count)
-      @y_incr = h.to_f / (@count)
-      @x = w + @x_incr * 1.4
-      @y = h + @y_incr * 1.4
+      x_f = w.to_f / (@count)
+      y_f = h.to_f / (@count)
+      @start_x = w + x_f * 1.4
+      @start_y = h + y_f * 1.4
       @end_x = w / 40
       @end_y = h / 40
     end
 
     def __step(w, h)
-      @x -= @x_incr
-      @y -= @y_incr
-      @x = @end_x if @x < @end_x
-      @y = @end_y if @y < @end_y
+      x = @start_x - (@start_x - @end_x) * fraction
+      y = @start_y - (@start_y - @end_y) * fraction
 
-      @rect1.setLocation(@x, 20)
-      @rect2.setLocation(20, @y)
+      @rect1.setLocation(x, 20)
+      @rect2.setLocation(20, y)
     end
 
     def __render(w, h, g)
@@ -616,12 +732,54 @@ class Intro < javax.swing.JPanel
     end
   end
 
+  class LnE < AnimateTemplate
+    def initialize(count, start_delay=0)
+      super(count, start_delay)
+      @points = []
+    end
+
+    def generate_pts(w, h)
+      @points = []
+      size = [w, h].max * fraction()
+      e = java.awt.geom.Ellipse2D::Double.new(w/2-size/2, h/2-size/2, size, size)
+      pi = e.getPathIterator(nil, 0.8)
+      until pi.isDone
+        pt = Array.new(6).to_java(:float)
+        case pi.currentSegment(pt)
+        when java.awt.geom.FlatteningPathIterator::SEG_MOVETO, java.awt.geom.FlatteningPathIterator::SEG_LINETO
+          @points << java.awt.geom.Point2D::Double.new(pt[0], pt[1])
+        end
+        pi.next
+      end
+    end
+
+    def __step(w, h)
+      generate_pts(w, h)
+    end
+
+    def __render(w, h, g)
+      g2 = g.create()
+      g2.setColor(java.awt.Color::YELLOW)
+      g2.setTransform(rotate(w, h))
+
+      center = java.awt.geom.Point2D::Double.new(w/2, h/2)
+      @points.each do |p|
+        g2.draw(java.awt.geom.Line2D::Float.new(center, p))
+      end
+      g2.dispose()
+    end
+
+    def rotate(w, h)
+      af = java.awt.geom.AffineTransform.new
+      theta = java.lang.Math.toRadians(720 * fraction())  # rotate 2 times
+      af.rotate(theta, w/2, h/2)
+      af
+    end
+  end
+
   class Features
-    Font1 = java.awt.Font.new("serif", java.awt.Font::BOLD, 38)
-    Font2 = java.awt.Font.new("serif", java.awt.Font::BOLD, 24)
-    
-    def initialize(lines)
-      @lines = lines
+    def initialize(lines, f1, f2)
+      @lines, @title_font, @body_font= lines, f1, f2
       @text_size = @lines.inject(0){|result, s| result += s.size}
 
       @render_lines = []
@@ -656,7 +814,7 @@ class Intro < javax.swing.JPanel
       research_font_metrics(g) if @fm1.nil?
       g.setColor(MY_WHITE)
       @render_lines.each_with_index do |line, i|
-        font = (i==0 ? Font1 : Font2)
+        font = (i==0 ? @title_font : @body_font)
         x = (i==0 ? 90 : 120)
         g.setFont(font)
         g.drawString(line, x, 90+@str_h*i)
@@ -664,8 +822,8 @@ class Intro < javax.swing.JPanel
     end
 
     def research_font_metrics(g)
-      @fm1 = g.getFontMetrics(Font1)
-      @fm2 = g.getFontMetrics(Font2)
+      @fm1 = g.getFontMetrics(@title_font)
+      @fm2 = g.getFontMetrics(@body_font)
       @str_h = @fm2.getAscent() + @fm2.getDescent()
     end
 
