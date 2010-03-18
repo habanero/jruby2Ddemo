@@ -1,0 +1,14 @@
+============== ==========
+  jruby2Ddemo   ver 0.01
+============== ==========
+
+◇ 概要 ◇
+  Java2Ddemo(http://java.sun.com/products/java-media/2D/samples/java2demo/Java2Demo.html)
+  をJRubyで書く
+
+◇ 動作条件 ◇
+  JRuby 1.4.0
+
+◇ 使い方 ◇
+intro.rb をJRubyで実行する
+
